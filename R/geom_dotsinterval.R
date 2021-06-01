@@ -204,14 +204,38 @@ makeContent.dots_grob = function(x) {
       )
       bin_df[[y]] = bin_df[[y]] + y_start + y_offset
 
-      pointsGrob(bin_df$x, bin_df$y, pch = bin_df$shape,
-        gp = gpar(
-          col = alpha(bin_df$colour, bin_df$alpha),
-          fill = alpha(bin_df$fill, bin_df$alpha),
-          fontsize = point_fontsize,
-          lwd = bin_df$size * .stroke/2,
-          lty = bin_df$linetype
-        ))
+      make_points_grob = function(point_df) {
+        pointsGrob(point_df$x, point_df$y, pch = point_df$shape,
+          gp = gpar(
+            col = alpha(point_df$colour, point_df$alpha),
+            fill = alpha(point_df$fill, point_df$alpha),
+            fontsize = point_fontsize,
+            lwd = point_df$size * .stroke/2,
+            lty = point_df$linetype
+          )
+        )
+      }
+
+      if (is.null(bin_df[["sd"]]) || all(is.na(bin_df[["sd"]]))) {
+        # no sds set, we can just make a points grob for the whole group
+        points = make_points_grob(bin_df)
+      } else {
+        # sds are set, make points one-by-one
+        points = do.call(gList, lapply(seq_len(nrow(bin_df)), function(r) {
+          row = bin_df[r,]
+          point = make_points_grob(row)
+
+          if (!is.na(row$sd)) {
+            with_blur(point, sigma = convertUnit(unit(row$sd, "native"), "points", x, "dimension"))
+          } else {
+            point
+          }
+        }))
+      }
+
+      points
+      # with_kernel(points, paste0("Comet:0x", convertWidth(unit(1, "native"), "native", valueOnly = TRUE)))
+      # with_blur(points, sigma = seq_len(nrow(bin_df))/nrow(bin_df)*2)
     })
   })))
 
@@ -254,6 +278,11 @@ draw_slabs_dots = function(self, s_data, panel_params, coord,
   if (!is.na(child_params$binwidth) && !is.unit(child_params$binwidth)) {
     #binwidth is expressed in terms of data coordinates, need to translate into standardized space
     child_params$binwidth = child_params$binwidth / (max(panel_params[[x.range]]) - min(panel_params[[x.range]]))
+  }
+
+  if (!is.null(s_data[["sd"]])) {
+    #sd is expressed in terms of data coordinates, need to translate into standardized space
+    s_data$sd = s_data$sd / (max(panel_params[[x.range]]) - min(panel_params[[x.range]]))
   }
 
   # draw the dots grob (which will draw dotplots for all the slabs)
@@ -423,13 +452,15 @@ geom_dotsinterval = function(
 #' @export
 GeomDotsinterval = ggproto("GeomDotsinterval", GeomSlabinterval,
   default_aes = defaults(aes(
-    slab_shape = NULL
+    slab_shape = NULL,
+    sd = NULL
   ), GeomSlabinterval$default_aes),
 
   default_key_aes = defaults(aes(
     slab_shape = 21,
     slab_size = 0.75,
-    slab_colour = "gray65"
+    slab_colour = "gray65",
+    sd = NA
   ), GeomSlabinterval$default_key_aes),
 
   override_slab_aesthetics = function(self, s_data) {
